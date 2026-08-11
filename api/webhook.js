@@ -273,7 +273,7 @@ async function handleGroqAI(ctx, text) {
                     let detail = `Kết quả dữ liệu tìm thấy:\n`;
                     if (txs.length > 0) {
                         detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => 
-                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}`
+                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Nguồn nhập: ${t.sellerName || '(Chưa có)'} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn gói: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}`
                         ).join('\n') + '\n';
                     }
                     if (notes.length > 0) {
