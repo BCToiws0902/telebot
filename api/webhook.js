@@ -936,41 +936,40 @@ bot.on(['text', 'channel_post'], async (ctx) => {
         
         ctx.session.state = 'IDLE';
         
-        if (txs.length === 0 && notes.length === 0) {
-            return await ctx.reply(`❌ Không tìm thấy dữ liệu nào khớp với: "${keyword}"`);
+        if (txs.length > 0 || notes.length > 0) {
+            let replyText = `🔍 <b>KẾT QUẢ TÌM KIẾM: "${keyword}"</b>\n\n`;
+            const buttons = [];
+            
+            if (txs.length > 0) {
+                replyText += `🛒 <b>ĐƠN HÀNG (${txs.length}):</b>\n`;
+                txs.forEach((tx, i) => {
+                    replyText += `<b>${i + 1}.</b> ${tx.transactionId} - ${tx.productName} (Khách: ${tx.buyerName})\n`;
+                    buttons.push([Markup.button.callback(`🛒 Xem Đơn ${tx.transactionId}`, `view_${tx.transactionId}`)]);
+                });
+                replyText += `\n`;
+            }
+            
+            if (notes.length > 0) {
+                replyText += `📝 <b>GHI CHÚ (${notes.length}):</b>\n`;
+                let noteRow = [];
+                notes.forEach((n, i) => {
+                    const date = new Date(n.createdAt).toLocaleDateString('vi-VN');
+                    let shortContent = n.content.length > 40 ? n.content.substring(0, 40) + '...' : n.content;
+                    replyText += `<b>${i + 1}.</b> [${n.category}] ${shortContent} <i>(${date})</i>\n`;
+                    noteRow.push(Markup.button.callback(`📝 Xem GC ${i + 1}`, `viewnote_${n._id}`));
+                    if (noteRow.length === 2) {
+                        buttons.push(noteRow);
+                        noteRow = [];
+                    }
+                });
+                if (noteRow.length > 0) buttons.push(noteRow);
+            }
+            
+            buttons.push([Markup.button.callback('🔙 Menu chính', 'action_menu')]);
+            
+            return await ctx.sendTracked(replyText, { reply_markup: { inline_keyboard: buttons }, parse_mode: 'HTML' });
         }
-        
-        let replyText = `🔍 <b>KẾT QUẢ TÌM KIẾM: "${keyword}"</b>\n\n`;
-        const buttons = [];
-        
-        if (txs.length > 0) {
-            replyText += `🛒 <b>ĐƠN HÀNG (${txs.length}):</b>\n`;
-            txs.forEach((tx, i) => {
-                replyText += `<b>${i + 1}.</b> ${tx.transactionId} - ${tx.productName} (Khách: ${tx.buyerName})\n`;
-                buttons.push([Markup.button.callback(`🛒 Xem Đơn ${tx.transactionId}`, `view_${tx.transactionId}`)]);
-            });
-            replyText += `\n`;
-        }
-        
-        if (notes.length > 0) {
-            replyText += `📝 <b>GHI CHÚ (${notes.length}):</b>\n`;
-            let noteRow = [];
-            notes.forEach((n, i) => {
-                const date = new Date(n.createdAt).toLocaleDateString('vi-VN');
-                let shortContent = n.content.length > 40 ? n.content.substring(0, 40) + '...' : n.content;
-                replyText += `<b>${i + 1}.</b> [${n.category}] ${shortContent} <i>(${date})</i>\n`;
-                noteRow.push(Markup.button.callback(`📝 Xem GC ${i + 1}`, `viewnote_${n._id}`));
-                if (noteRow.length === 2) {
-                    buttons.push(noteRow);
-                    noteRow = [];
-                }
-            });
-            if (noteRow.length > 0) buttons.push(noteRow);
-        }
-        
-        buttons.push([Markup.button.callback('🔙 Menu chính', 'action_menu')]);
-        
-        return await ctx.sendTracked(replyText, { reply_markup: { inline_keyboard: buttons }, parse_mode: 'HTML' });
+        // Nếu không có kết quả khớp tuyệt đối, để luồng chảy xuống Groq AI xử lý tự nhiên!
     }
 
     const state = ctx.session.state;
