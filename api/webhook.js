@@ -413,16 +413,51 @@ bot.action(/^fincat_(.+)$/, async (ctx) => {
     await ctx.sendTracked(`Danh mục đã chọn: **${category}**\n\nVui lòng nhập GHI CHÚ (hoặc gõ No nếu không có):`, { parse_mode: 'Markdown' });
 });
 
-bot.action('action_finance_stats', async (ctx) => {
+async function generateFinanceReport(ctx, period = 'month') {
     await ctx.clearOldMessages();
     ctx.answerCbQuery();
     
     const now = new Date();
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    let startDate = null;
+    let periodTitle = '';
     
-    const items = await Expense.find({ date: { $gte: firstDay } }).sort({ date: -1 });
+    if (period === 'week') {
+        const day = now.getDay();
+        const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
+        startDate = new Date(now.setDate(diffToMonday));
+        startDate.setHours(0, 0, 0, 0);
+        periodTitle = 'TUẦN NÀY';
+    } else if (period === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        periodTitle = `NĂM ${now.getFullYear()}`;
+    } else if (period === 'all') {
+        startDate = null;
+        periodTitle = 'TOÀN BỘ THỜI GIAN';
+    } else {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        periodTitle = `THÁNG ${now.getMonth() + 1}/${now.getFullYear()}`;
+    }
+    
+    const query = startDate ? { date: { $gte: startDate } } : {};
+    const items = await Expense.find(query).sort({ date: -1 });
+    
+    const timeframeButtons = [
+        [
+            Markup.button.callback(period === 'week' ? '🔹 Tuần Này' : 'Tuần Này', 'finreport_week'),
+            Markup.button.callback(period === 'month' ? '🔹 Tháng Này' : 'Tháng Này', 'finreport_month')
+        ],
+        [
+            Markup.button.callback(period === 'year' ? '🔹 Năm Này' : 'Năm Này', 'finreport_year'),
+            Markup.button.callback(period === 'all' ? '🔹 Toàn Bộ' : 'Toàn Bộ', 'finreport_all')
+        ]
+    ];
+    
     if (items.length === 0) {
-        return await ctx.sendTracked(`📊 Tháng ${now.getMonth() + 1}/${now.getFullYear()} chưa có khoản thu chi nào.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Quay lại Thu Chi', 'action_personal_finance')]]));
+        const emptyBtns = Markup.inlineKeyboard([
+            ...timeframeButtons,
+            [Markup.button.callback('🔙 Quay lại Thu Chi', 'action_personal_finance')]
+        ]);
+        return await ctx.sendTracked(`📊 **BÁO CÁO THU CHI - ${periodTitle}**\n\nChưa có khoản thu chi nào trong mốc thời gian này.`, { ...emptyBtns, parse_mode: 'Markdown' });
     }
     
     let totalIncome = 0;
@@ -440,7 +475,7 @@ bot.action('action_finance_stats', async (ctx) => {
     
     const balance = totalIncome - totalExpense;
     
-    let reportText = `📊 **BÁO CÁO THU CHI THÁNG ${now.getMonth() + 1}/${now.getFullYear()}**\n\n` +
+    let reportText = `📊 **BÁO CÁO THU CHI - ${periodTitle}**\n\n` +
                      `🟢 **Tổng Thu:** ${totalIncome.toLocaleString('vi-VN')} VNĐ\n` +
                      `🔴 **Tổng Chi:** ${totalExpense.toLocaleString('vi-VN')} VNĐ\n` +
                      `💵 **Dư Tích Lũy:** ${balance.toLocaleString('vi-VN')} VNĐ\n\n` +
@@ -452,16 +487,20 @@ bot.action('action_finance_stats', async (ctx) => {
             reportText += `- **${cat}**: ${amt.toLocaleString('vi-VN')} VNĐ (${percent}%)\n`;
         }
     } else {
-        reportText += `*(Chưa có khoản chi nào trong tháng)*\n`;
+        reportText += `*(Chưa có khoản chi nào trong mốc thời gian này)*\n`;
     }
     
     const btns = Markup.inlineKeyboard([
+        ...timeframeButtons,
         [Markup.button.callback('📋 Giao Dịch Gần Đây', 'action_finance_recent')],
         [Markup.button.callback('🔙 Quay lại Thu Chi', 'action_personal_finance'), Markup.button.callback('🏠 Menu chính', 'action_menu')]
     ]);
     
     await ctx.sendTracked(reportText, { ...btns, parse_mode: 'Markdown' });
-});
+}
+
+bot.action('action_finance_stats', async (ctx) => { await generateFinanceReport(ctx, 'month'); });
+bot.action(/^finreport_(week|month|year|all)$/, async (ctx) => { await generateFinanceReport(ctx, ctx.match[1]); });
 
 bot.action('action_finance_recent', async (ctx) => {
     await ctx.clearOldMessages();
