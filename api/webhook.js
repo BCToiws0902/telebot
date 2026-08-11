@@ -106,22 +106,58 @@ async function handleGroqAI(ctx, text) {
                     const period = args.period || 'month';
                     const now = new Date();
                     let startDate = null;
+                    let title = 'THÁNG NÀY';
                     if (period === 'week') {
                         const day = now.getDay();
                         const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
                         startDate = new Date(now.setDate(diffToMonday));
                         startDate.setHours(0, 0, 0, 0);
+                        title = 'TUẦN NÀY';
                     } else if (period === 'year') {
                         startDate = new Date(now.getFullYear(), 0, 1);
+                        title = `NĂM ${now.getFullYear()}`;
                     } else if (period === 'month') {
                         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                        title = `THÁNG ${now.getMonth() + 1}/${now.getFullYear()}`;
+                    } else {
+                        title = 'TOÀN BỘ';
                     }
 
                     const query = startDate ? { date: { $gte: startDate } } : {};
-                    const items = await Expense.find(query);
+                    const items = await Expense.find(query).sort({ date: -1 }).lean();
                     let inc = 0, exp = 0;
-                    items.forEach(i => { if (i.type === 'INCOME') inc += i.amount; else exp += i.amount; });
-                    toolResults.push(`📊 Báo cáo (${period}): Tổng Thu = ${inc.toLocaleString()}đ, Tổng Chi = ${exp.toLocaleString()}đ, Dư = ${(inc - exp).toLocaleString()}đ`);
+                    const catTotals = {};
+                    items.forEach(i => {
+                        if (i.type === 'INCOME') inc += i.amount;
+                        else {
+                            exp += i.amount;
+                            catTotals[i.category] = (catTotals[i.category] || 0) + i.amount;
+                        }
+                    });
+
+                    let detail = `📊 Báo cáo tài chính (${title}):\n` +
+                                 `- Tổng Thu: ${inc.toLocaleString('vi-VN')}đ | Tổng Chi: ${exp.toLocaleString('vi-VN')}đ | Số Dư: ${(inc - exp).toLocaleString('vi-VN')}đ\n\n`;
+                    
+                    if (Object.keys(catTotals).length > 0) {
+                        detail += `📁 PHÂN BỔ THEO DANH MỤC:\n`;
+                        for (const [cat, amt] of Object.entries(catTotals)) {
+                            const pct = exp > 0 ? Math.round((amt / exp) * 100) : 0;
+                            detail += `- ${cat}: ${amt.toLocaleString('vi-VN')}đ (${pct}%)\n`;
+                        }
+                        detail += `\n`;
+                    }
+                    
+                    if (items.length > 0) {
+                        detail += `📝 CÁC KHOẢN GIAO DỊCH CHI TIẾT (${items.length} khoản):\n`;
+                        items.slice(0, 15).forEach((item, idx) => {
+                            const icon = item.type === 'INCOME' ? 'THU' : 'CHI';
+                            const dateStr = new Date(item.date).toLocaleDateString('vi-VN');
+                            detail += `${idx + 1}. [${icon} ${item.amount.toLocaleString('vi-VN')}đ] (${item.category}) Ghi chú: ${item.note} - Ngày: ${dateStr}\n`;
+                        });
+                    } else {
+                        detail += `Chưa có giao dịch nào trong khoảng thời gian này.`;
+                    }
+                    toolResults.push(detail);
                 }
                 else if (fnName === 'search_database') {
                     const kw = (args.keyword || '').trim();
