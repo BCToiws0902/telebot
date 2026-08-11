@@ -5,41 +5,44 @@ const { Transaction, Session, Config, PcCommand, Note, Expense } = require('../l
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+let cachedOwnerId = null;
+
 bot.use(async (ctx, next) => {
     const isChannel = !!ctx.channelPost;
     if (!ctx.from && !isChannel) return;
     
     await connectDB();
     
-    // BẢO MẬT BOT
-    let ownerConf = await Config.findOne({ key: 'ownerId' });
-    if (!ownerConf) {
-        if (ctx.message && ctx.message.text === 'Buicongtoi0902') {
-            ownerConf = new Config({ key: 'ownerId', value: ctx.from.id });
-            await ownerConf.save();
-            return ctx.reply('✅ Kích hoạt thành công! Bạn đã được nhận diện là Chủ Nhân của Bot. Gõ /start để bắt đầu.');
+    // BẢO MẬT BOT - Cache ownerId trong bộ nhớ để không phải truy vấn DB mỗi lần nhắn tin
+    if (!cachedOwnerId) {
+        let ownerConf = await Config.findOne({ key: 'ownerId' }).lean();
+        if (ownerConf) {
+            cachedOwnerId = ownerConf.value;
+        } else {
+            if (ctx.message && ctx.message.text === 'Buicongtoi0902') {
+                ownerConf = new Config({ key: 'ownerId', value: ctx.from.id });
+                await ownerConf.save();
+                cachedOwnerId = ctx.from.id;
+                return ctx.reply('✅ Kích hoạt thành công! Bạn đã được nhận diện là Chủ Nhân của Bot. Gõ /start để bắt đầu.');
+            }
+            return ctx.reply('🔒 Hệ thống đang khóa. Vui lòng nhập Mật khẩu quản trị để mở khóa Bot:');
         }
-        return ctx.reply('🔒 Hệ thống đang khóa. Vui lòng nhập Mật khẩu quản trị để mở khóa Bot:');
     }
     
-    // Nếu là tin nhắn cá nhân hoặc nhóm, kiểm tra chủ nhân
-    if (!isChannel && ctx.from.id !== ownerConf.value) {
+    // Kiểm tra quyền chủ nhân
+    if (!isChannel && ctx.from.id !== cachedOwnerId) {
         return ctx.reply('🚫 Bot này là tài sản cá nhân. Bạn không có quyền truy cập.');
     }
 
     const userId = isChannel ? ctx.chat.id : ctx.from.id;
-    let session = await Session.findOne({ userId });
+    let session = await Session.findOne({ userId }).lean();
     if (!session) {
-        session = new Session({ userId, state: 'IDLE', data: {}, lastMessages: [] });
-        await session.save();
+        session = { userId, state: 'IDLE', data: {}, lastMessages: [] };
+        await Session.create(session);
     }
     ctx.session = session;
 
-    // Track user's own messages so we can delete them later
-    const reqMsg = ctx.message || ctx.channelPost;
-
     ctx.sendTracked = async (text, extra) => { return await ctx.reply(text, extra); };
-
     ctx.clearOldMessages = async () => {};
 
     await next();
