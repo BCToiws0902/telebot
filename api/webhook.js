@@ -44,11 +44,12 @@ const groqTools = [
         type: 'function',
         function: {
             name: 'search_database',
-            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc ghi chú lưu trữ trong CSDL. Nếu người dùng muốn xem tất cả ghi chú hoặc xem tất cả đơn hàng, truyền keyword là "all".',
+            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc ghi chú lưu trữ trong CSDL.',
             parameters: {
                 type: 'object',
                 properties: {
-                    keyword: { type: 'string', description: 'Từ khóa tìm kiếm (Ví dụ: "Nghĩa", "Netflix", hoặc "all" nếu muốn xem tất cả)' }
+                    keyword: { type: 'string', description: 'Từ khóa tìm kiếm (Ví dụ: "Nghĩa", "Netflix", hoặc "all" nếu muốn xem tất cả)' },
+                    target: { type: 'string', enum: ['all', 'notes', 'orders'], description: 'Mục tiêu: "notes" nếu người dùng chỉ hỏi xem Ghi chú, "orders" nếu chỉ hỏi xem Đơn hàng CRM, "all" nếu muốn xem cả hai.' }
                 },
                 required: ['keyword']
             }
@@ -66,7 +67,7 @@ async function handleGroqAI(ctx, text) {
         const messages = [
             {
                 role: 'system',
-                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng. Khi người dùng muốn xem ghi chú hoặc thông tin khách hàng/đơn hàng, hãy gọi hàm search_database.'
+                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng. Khi người dùng chỉ muốn xem Ghi chú, hãy gọi hàm search_database với target là "notes". Khi người dùng chỉ muốn xem Đơn hàng, hãy gọi search_database với target là "orders".'
             },
             { role: 'user', content: text }
         ];
@@ -121,30 +122,41 @@ async function handleGroqAI(ctx, text) {
                 }
                 else if (fnName === 'search_database') {
                     const kw = (args.keyword || '').trim();
+                    const target = (args.target || 'all').toLowerCase();
+                    
                     let txs = [];
                     let notes = [];
+                    const isAllKeyword = !kw || kw.toLowerCase() === 'all' || kw.toLowerCase() === 'tất cả';
                     
-                    if (!kw || kw.toLowerCase() === 'all' || kw.toLowerCase() === 'tất cả') {
-                        txs = await Transaction.find().sort({ saleDate: -1 }).limit(10).lean();
-                        notes = await Note.find().sort({ createdAt: -1 }).limit(10).lean();
-                    } else {
-                        txs = await Transaction.find({
-                            $or: [
-                                { buyerName: { $regex: kw, $options: 'i' } },
-                                { transactionId: { $regex: kw, $options: 'i' } },
-                                { productName: { $regex: kw, $options: 'i' } },
-                                { sellerName: { $regex: kw, $options: 'i' } }
-                            ]
-                        }).limit(10).lean();
-                        notes = await Note.find({
-                            $or: [
-                                { content: { $regex: kw, $options: 'i' } },
-                                { category: { $regex: kw, $options: 'i' } }
-                            ]
-                        }).limit(10).lean();
+                    if (target === 'all' || target === 'orders') {
+                        if (isAllKeyword) {
+                            txs = await Transaction.find().sort({ saleDate: -1 }).limit(10).lean();
+                        } else {
+                            txs = await Transaction.find({
+                                $or: [
+                                    { buyerName: { $regex: kw, $options: 'i' } },
+                                    { transactionId: { $regex: kw, $options: 'i' } },
+                                    { productName: { $regex: kw, $options: 'i' } },
+                                    { sellerName: { $regex: kw, $options: 'i' } }
+                                ]
+                            }).limit(10).lean();
+                        }
                     }
                     
-                    let detail = `Kết quả dữ liệu tìm thấy cho từ khóa "${kw || 'Tất cả'}":\n`;
+                    if (target === 'all' || target === 'notes') {
+                        if (isAllKeyword) {
+                            notes = await Note.find().sort({ createdAt: -1 }).limit(10).lean();
+                        } else {
+                            notes = await Note.find({
+                                $or: [
+                                    { content: { $regex: kw, $options: 'i' } },
+                                    { category: { $regex: kw, $options: 'i' } }
+                                ]
+                            }).limit(10).lean();
+                        }
+                    }
+                    
+                    let detail = `Kết quả dữ liệu tìm thấy:\n`;
                     if (txs.length > 0) {
                         detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => 
                             `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}`
@@ -154,7 +166,7 @@ async function handleGroqAI(ctx, text) {
                         detail += `[KHO GHI CHÚ]:\n` + notes.map(n => `- [Danh mục: ${n.category}] Nội dung: ${n.content || '(Chỉ có file đính kèm)'}`).join('\n');
                     }
                     if (txs.length === 0 && notes.length === 0) {
-                        detail += `Không tìm thấy đơn hàng hoặc ghi chú nào trong CSDL.`;
+                        detail += `Không tìm thấy dữ liệu phù hợp trong CSDL.`;
                     }
                     toolResults.push(detail);
                 }
