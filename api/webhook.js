@@ -206,6 +206,25 @@ async function sendSafeMarkdown(ctx, text) {
         }
     } catch (err) {
         console.error('Lỗi Groq AI:', err);
+        if (err.message && err.message.includes('tool_use_failed')) {
+            const lower = text.toLowerCase();
+            if (lower.includes('tuần') || lower.includes('week')) {
+                await generateFinanceReport(ctx, 'week');
+                return true;
+            }
+            if (lower.includes('tháng') || lower.includes('month')) {
+                await generateFinanceReport(ctx, 'month');
+                return true;
+            }
+            if (lower.includes('năm') || lower.includes('year')) {
+                await generateFinanceReport(ctx, 'year');
+                return true;
+            }
+            if (lower.includes('toàn bộ') || lower.includes('tất cả')) {
+                await generateFinanceReport(ctx, 'all');
+                return true;
+            }
+        }
         await ctx.sendTracked(`⚠️ Lỗi Groq AI: ${err.message}`);
         return true;
     }
