@@ -118,9 +118,30 @@ async function handleGroqAI(ctx, text) {
                 }
                 else if (fnName === 'search_database') {
                     const kw = args.keyword;
-                    const txs = await Transaction.find({ buyerName: { $regex: kw, $options: 'i' } }).limit(5);
-                    const notes = await Note.find({ content: { $regex: kw, $options: 'i' } }).limit(5);
-                    toolResults.push(`🔍 Tìm thấy ${txs.length} đơn hàng và ${notes.length} ghi chú cho "${kw}"`);
+                    const txs = await Transaction.find({
+                        $or: [
+                            { buyerName: { $regex: kw, $options: 'i' } },
+                            { transactionId: { $regex: kw, $options: 'i' } },
+                            { productName: { $regex: kw, $options: 'i' } },
+                            { sellerName: { $regex: kw, $options: 'i' } }
+                        ]
+                    }).limit(10).lean();
+                    
+                    const notes = await Note.find({ content: { $regex: kw, $options: 'i' } }).limit(5).lean();
+                    
+                    let detail = `Kết quả dữ liệu tìm thấy cho từ khóa "${kw}":\n`;
+                    if (txs.length > 0) {
+                        detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => 
+                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}`
+                        ).join('\n') + '\n';
+                    }
+                    if (notes.length > 0) {
+                        detail += `[KHO GHI CHÚ]:\n` + notes.map(n => `- [Danh mục: ${n.category}] Nội dung: ${n.content}`).join('\n');
+                    }
+                    if (txs.length === 0 && notes.length === 0) {
+                        detail += `Không tìm thấy đơn hàng hoặc ghi chú nào trong CSDL khớp với "${kw}".`;
+                    }
+                    toolResults.push(detail);
                 }
             }
 
