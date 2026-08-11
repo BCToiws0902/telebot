@@ -5,6 +5,151 @@ const { Transaction, Session, Config, PcCommand, Note, Expense } = require('../l
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+const Groq = require('groq-sdk');
+const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+
+const groqTools = [
+    {
+        type: 'function',
+        function: {
+            name: 'add_expense',
+            description: 'Ghi nhận khoản Thu hoặc Chi tiêu cá nhân mới vào CSDL. Gọi hàm này khi người dùng nói về việc tiêu tiền, mua sắm, trả tiền hoặc nhận tiền, lương, thưởng.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    type: { type: 'string', enum: ['INCOME', 'EXPENSE'], description: 'EXPENSE cho chi tiêu, INCOME cho thu nhập' },
+                    amount: { type: 'number', description: 'Số tiền tính bằng VNĐ (Ví dụ: 50000, 1500000)' },
+                    category: { type: 'string', description: 'Danh mục: Ăn uống, Di chuyển, Hóa đơn & Sinh hoạt, Mua sắm, Giải trí, Lương, Thưởng & Bonus, Đầu tư, Khác' },
+                    note: { type: 'string', description: 'Mô tả nội dung khoản thu/chi (Ví dụ: Phở bò, Đổ xăng, Tiền điện)' }
+                },
+                required: ['type', 'amount', 'category', 'note']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_finance_report',
+            description: 'Lấy dữ liệu thống kê tổng thu, tổng chi và số dư theo mốc thời gian.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    period: { type: 'string', enum: ['week', 'month', 'year', 'all'], description: 'week (tuần này), month (tháng này), year (năm nay), all (toàn bộ)' }
+                },
+                required: ['period']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_database',
+            description: 'Tìm kiếm thông tin đơn hàng bán hàng CRM hoặc ghi chú lưu trữ theo từ khóa.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Từ khóa tìm kiếm' }
+                },
+                required: ['keyword']
+            }
+        }
+    }
+];
+
+async function handleGroqAI(ctx, text) {
+    if (!groq) return false;
+    
+    try {
+        const messages = [
+            {
+                role: 'system',
+                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng.'
+            },
+            { role: 'user', content: text }
+        ];
+
+        const response = await groq.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages,
+            tools: groqTools,
+            tool_choice: 'auto'
+        });
+
+        const responseMessage = response.choices[0].message;
+
+        if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+            let toolResults = [];
+            
+            for (const toolCall of responseMessage.tool_calls) {
+                const fnName = toolCall.function.name;
+                const args = JSON.parse(toolCall.function.arguments);
+
+                if (fnName === 'add_expense') {
+                    const exp = new Expense({
+                        type: args.type,
+                        amount: args.amount,
+                        category: args.category || 'Khác',
+                        note: args.note || (args.type === 'EXPENSE' ? 'Chi tiêu' : 'Thu nhập')
+                    });
+                    await exp.save();
+                    const icon = args.type === 'EXPENSE' ? '💸 CHI' : '💰 THU';
+                    toolResults.push(`✅ Đã lưu ${icon}: ${args.amount.toLocaleString('vi-VN')} VNĐ | [${exp.category}] ${exp.note}`);
+                }
+                else if (fnName === 'get_finance_report') {
+                    const period = args.period || 'month';
+                    const now = new Date();
+                    let startDate = null;
+                    if (period === 'week') {
+                        const day = now.getDay();
+                        const diffToMonday = now.getDate() - day + (day === 0 ? -6 : 1);
+                        startDate = new Date(now.setDate(diffToMonday));
+                        startDate.setHours(0, 0, 0, 0);
+                    } else if (period === 'year') {
+                        startDate = new Date(now.getFullYear(), 0, 1);
+                    } else if (period === 'month') {
+                        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                    }
+
+                    const query = startDate ? { date: { $gte: startDate } } : {};
+                    const items = await Expense.find(query);
+                    let inc = 0, exp = 0;
+                    items.forEach(i => { if (i.type === 'INCOME') inc += i.amount; else exp += i.amount; });
+                    toolResults.push(`📊 Báo cáo (${period}): Tổng Thu = ${inc.toLocaleString()}đ, Tổng Chi = ${exp.toLocaleString()}đ, Dư = ${(inc - exp).toLocaleString()}đ`);
+                }
+                else if (fnName === 'search_database') {
+                    const kw = args.keyword;
+                    const txs = await Transaction.find({ buyerName: { $regex: kw, $options: 'i' } }).limit(5);
+                    const notes = await Note.find({ content: { $regex: kw, $options: 'i' } }).limit(5);
+                    toolResults.push(`🔍 Tìm thấy ${txs.length} đơn hàng và ${notes.length} ghi chú cho "${kw}"`);
+                }
+            }
+
+            messages.push(responseMessage);
+            messages.push({
+                role: 'tool',
+                tool_call_id: responseMessage.tool_calls[0].id,
+                content: toolResults.join('\n')
+            });
+
+            const finalResponse = await groq.chat.completions.create({
+                model: 'llama-3.3-70b-versatile',
+                messages
+            });
+
+            await ctx.sendTracked(finalResponse.choices[0].message.content, { parse_mode: 'Markdown' });
+            return true;
+        }
+
+        if (responseMessage.content) {
+            await ctx.sendTracked(responseMessage.content, { parse_mode: 'Markdown' });
+            return true;
+        }
+    } catch (err) {
+        console.error('Lỗi Groq AI:', err);
+    }
+    return false;
+}
+
 let cachedOwnerId = null;
 
 bot.use(async (ctx, next) => {
@@ -13,13 +158,15 @@ bot.use(async (ctx, next) => {
     
     await connectDB();
     
+    const ownerPassword = process.env.OWNER_PASSWORD || 'Buicongtoi0902';
+    
     // BẢO MẬT BOT - Cache ownerId trong bộ nhớ để không phải truy vấn DB mỗi lần nhắn tin
     if (!cachedOwnerId) {
         let ownerConf = await Config.findOne({ key: 'ownerId' }).lean();
         if (ownerConf) {
             cachedOwnerId = ownerConf.value;
         } else {
-            if (ctx.message && ctx.message.text === 'Buicongtoi0902') {
+            if (ctx.message && ctx.message.text === ownerPassword) {
                 ownerConf = new Config({ key: 'ownerId', value: ctx.from.id });
                 await ownerConf.save();
                 cachedOwnerId = ctx.from.id;
@@ -807,8 +954,8 @@ bot.on(['text', 'channel_post'], async (ctx) => {
 
     const state = ctx.session.state;
     if (state === 'IDLE') {
-        // Không xóa tin nhắn rác của người dùng nữa
-        // try { await ctx.deleteMessage(msg.message_id); } catch(e){}
+        const handledByAI = await handleGroqAI(ctx, text);
+        if (handledByAI) return;
         return;
     }
 
