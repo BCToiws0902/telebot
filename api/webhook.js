@@ -57,13 +57,16 @@ const groqTools = [
 ];
 
 async function handleGroqAI(ctx, text) {
-    if (!groq) return false;
+    if (!groq) {
+        await ctx.sendTracked('⚠️ Bot chưa nhận được `GROQ_API_KEY` trên Vercel.\n\nVui lòng vào Vercel Dashboard -> Project Settings -> Environment Variables -> Thêm `GROQ_API_KEY` = `gsk_xE1EB...` rồi Bấm **Redeploy**!');
+        return true;
+    }
     
     try {
         const messages = [
             {
                 role: 'system',
-                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng.'
+                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng. Khi tìm kiếm thông tin khách hàng, hãy gọi hàm search_database.'
             },
             { role: 'user', content: text }
         ];
@@ -167,6 +170,8 @@ async function handleGroqAI(ctx, text) {
         }
     } catch (err) {
         console.error('Lỗi Groq AI:', err);
+        await ctx.sendTracked(`⚠️ Lỗi Groq AI: ${err.message}`);
+        return true;
     }
     return false;
 }
