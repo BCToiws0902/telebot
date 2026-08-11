@@ -89,15 +89,18 @@ async function handleGroqAI(ctx, text) {
                 const args = JSON.parse(toolCall.function.arguments);
 
                 if (fnName === 'add_expense') {
+                    let amt = Number(args.amount) || 0;
+                    if (amt > 0 && amt < 1000) amt = amt * 1000;
+                    
                     const exp = new Expense({
                         type: args.type,
-                        amount: args.amount,
+                        amount: amt,
                         category: args.category || 'Khác',
                         note: args.note || (args.type === 'EXPENSE' ? 'Chi tiêu' : 'Thu nhập')
                     });
                     await exp.save();
                     const icon = args.type === 'EXPENSE' ? '💸 CHI' : '💰 THU';
-                    toolResults.push(`✅ Đã lưu ${icon}: ${args.amount.toLocaleString('vi-VN')} VNĐ | [${exp.category}] ${exp.note}`);
+                    toolResults.push(`✅ Đã lưu ${icon}: ${amt.toLocaleString('vi-VN')} VNĐ | [${exp.category}] ${exp.note}`);
                 }
                 else if (fnName === 'get_finance_report') {
                     const period = args.period || 'month';
