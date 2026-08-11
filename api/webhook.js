@@ -160,12 +160,21 @@ async function handleGroqAI(ctx, text) {
                 messages
             });
 
-            await ctx.sendTracked(finalResponse.choices[0].message.content, { parse_mode: 'Markdown' });
+async function sendSafeMarkdown(ctx, text) {
+    if (!text) return;
+    try {
+        await ctx.sendTracked(text, { parse_mode: 'Markdown' });
+    } catch (err) {
+        await ctx.sendTracked(text);
+    }
+}
+
+            await sendSafeMarkdown(ctx, finalResponse.choices[0].message.content);
             return true;
         }
 
         if (responseMessage.content) {
-            await ctx.sendTracked(responseMessage.content, { parse_mode: 'Markdown' });
+            await sendSafeMarkdown(ctx, responseMessage.content);
             return true;
         }
     } catch (err) {
