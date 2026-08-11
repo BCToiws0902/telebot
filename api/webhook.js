@@ -273,11 +273,14 @@ async function handleGroqAI(ctx, text) {
                     let detail = `Kết quả dữ liệu tìm thấy:\n`;
                     if (txs.length > 0) {
                         detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => 
-                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Nguồn nhập: ${t.sellerName || '(Chưa có)'} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn gói: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}`
+                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Nguồn nhập: ${t.sellerName || '(Chưa có)'} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn gói: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}${t.proofPhoto ? ` | Có ảnh bằng chứng` : ''}`
                         ).join('\n') + '\n';
                     }
                     if (notes.length > 0) {
-                        detail += `[KHO SAVED]:\n` + notes.map(n => `- [Phân loại: ${n.category}] Nội dung: ${n.content || '(Chỉ có file đính kèm)'}`).join('\n');
+                        detail += `[KHO SAVED]:\n` + notes.map(n => {
+                            const dateStr = n.createdAt ? new Date(n.createdAt).toLocaleDateString('vi-VN') : '';
+                            return `- [Phân loại: ${n.category}] Nội dung: ${n.content || '(Chỉ có file đính kèm)'}${dateStr ? ` | Ngày lưu: ${dateStr}` : ''}${n.fileType ? ` | Loại tệp: ${n.fileType}` : ''}`;
+                        }).join('\n');
                     }
                     if (txs.length === 0 && notes.length === 0) {
                         detail += `Không tìm thấy dữ liệu phù hợp trong CSDL.`;
