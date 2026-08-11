@@ -30,7 +30,7 @@ const groqTools = [
         type: 'function',
         function: {
             name: 'get_finance_report',
-            description: 'Lấy dữ liệu thống kê tổng thu, tổng chi và số dư theo mốc thời gian.',
+            description: 'Lấy dữ liệu thống kê tổng thu, tổng chi và số dư theo mốc thời gian kèm kê khai danh mục chi tiết.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -44,14 +44,58 @@ const groqTools = [
         type: 'function',
         function: {
             name: 'search_database',
-            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc ghi chú lưu trữ trong CSDL.',
+            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc dữ liệu trong Kho Saved.',
             parameters: {
                 type: 'object',
                 properties: {
                     keyword: { type: 'string', description: 'Từ khóa tìm kiếm (Ví dụ: "Nghĩa", "Netflix", hoặc "all" nếu muốn xem tất cả)' },
-                    target: { type: 'string', enum: ['all', 'notes', 'orders'], description: 'Mục tiêu: "notes" nếu người dùng chỉ hỏi xem Ghi chú, "orders" nếu chỉ hỏi xem Đơn hàng CRM, "all" nếu muốn xem cả hai.' }
+                    target: { type: 'string', enum: ['all', 'notes', 'orders'], description: 'Mục tiêu: "notes" nếu chỉ xem Kho Saved, "orders" nếu chỉ xem Đơn hàng CRM, "all" nếu muốn xem cả hai.' }
                 },
                 required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'save_note',
+            description: 'Tự động lưu thông tin, ý tưởng, liên kết, tài khoản hoặc ghi chú mới vào Kho Saved.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    content: { type: 'string', description: 'Nội dung thông tin cần lưu' },
+                    category: { type: 'string', description: 'Danh mục: Saved, Trang web, App, Prompt' }
+                },
+                required: ['content']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'delete_note',
+            description: 'Xóa một mục khỏi Kho Saved theo từ khóa hoặc nội dung.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Từ khóa hoặc nội dung mục cần xóa khỏi Kho Saved' }
+                },
+                required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'update_note',
+            description: 'Cập nhật/sửa nội dung một mục trong Kho Saved.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Từ khóa tìm mục cần sửa trong Kho Saved' },
+                    newContent: { type: 'string', description: 'Nội dung mới cần thay thế' }
+                },
+                required: ['keyword', 'newContent']
             }
         }
     }
@@ -67,7 +111,7 @@ async function handleGroqAI(ctx, text) {
         const messages = [
             {
                 role: 'system',
-                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để tự động lưu Thu Chi, lấy Báo cáo tài chính và Tìm kiếm CSDL. Khi người dùng đề cập đến việc chi tiền hoặc thu tiền, hãy tự động gọi hàm add_expense với thông tin tương ứng. Khi người dùng chỉ muốn xem Ghi chú, hãy gọi hàm search_database với target là "notes". Khi người dùng chỉ muốn xem Đơn hàng, hãy gọi search_database với target là "orders".'
+                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để quản lý toàn bộ Thu Chi, Báo cáo tài chính và Kho Saved (Lưu, Sửa, Xóa, Tra cứu). Khi người dùng chi/thu tiền, gọi add_expense. Khi người dùng cần báo cáo thu chi, gọi get_finance_report. Khi người dùng muốn lưu thông tin/ý tưởng/link/mật khẩu, hãy gọi save_note. Khi người dùng muốn xóa mục trong Saved, gọi delete_note. Khi người dùng muốn sửa mục trong Saved, gọi update_note. Khi người dùng tra cứu thông tin hay xem Saved, gọi search_database.'
             },
             { role: 'user', content: text }
         ];
@@ -102,6 +146,33 @@ async function handleGroqAI(ctx, text) {
                     const icon = args.type === 'EXPENSE' ? '💸 CHI' : '💰 THU';
                     toolResults.push(`✅ Đã lưu ${icon}: ${amt.toLocaleString('vi-VN')} VNĐ | [${exp.category}] ${exp.note}`);
                 }
+                else if (fnName === 'save_note') {
+                    const cat = args.category || 'Saved';
+                    const newNote = new Note({ content: args.content, category: cat });
+                    await newNote.save();
+                    toolResults.push(`✅ Đã lưu thành công vào Kho Saved [Phân loại: ${cat}]: ${args.content}`);
+                }
+                else if (fnName === 'delete_note') {
+                    const kw = args.keyword;
+                    const deleted = await Note.deleteMany({
+                        $or: [
+                            { content: { $regex: kw, $options: 'i' } },
+                            { category: { $regex: kw, $options: 'i' } }
+                        ]
+                    });
+                    toolResults.push(`🗑 Đã xóa ${deleted.deletedCount} mục khớp với từ khóa "${kw}" khỏi Kho Saved.`);
+                }
+                else if (fnName === 'update_note') {
+                    const kw = args.keyword;
+                    const note = await Note.findOne({ content: { $regex: kw, $options: 'i' } });
+                    if (note) {
+                        note.content = args.newContent;
+                        await note.save();
+                        toolResults.push(`✏ Đã cập nhật mục trong Kho Saved [Phân loại: ${note.category}] thành: ${args.newContent}`);
+                    } else {
+                        toolResults.push(`❌ Không tìm thấy mục nào khớp với từ khóa "${kw}" trong Kho Saved để sửa.`);
+                    }
+                }
                 else if (fnName === 'get_finance_report') {
                     const period = args.period || 'month';
                     const now = new Date();
@@ -120,43 +191,47 @@ async function handleGroqAI(ctx, text) {
                         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
                         title = `THÁNG ${now.getMonth() + 1}/${now.getFullYear()}`;
                     } else {
-                        title = 'TOÀN BỘ';
+                        title = 'TOÀN BỘ THỜI GIAN';
                     }
 
                     const query = startDate ? { date: { $gte: startDate } } : {};
                     const items = await Expense.find(query).sort({ date: -1 }).lean();
                     let inc = 0, exp = 0;
-                    const catTotals = {};
+                    const catItemsMap = {};
+                    
                     items.forEach(i => {
                         if (i.type === 'INCOME') inc += i.amount;
                         else {
                             exp += i.amount;
-                            catTotals[i.category] = (catTotals[i.category] || 0) + i.amount;
+                            if (!catItemsMap[i.category]) catItemsMap[i.category] = { total: 0, list: [] };
+                            catItemsMap[i.category].total += i.amount;
+                            catItemsMap[i.category].list.push(i);
                         }
                     });
 
-                    let detail = `📊 Báo cáo tài chính (${title}):\n` +
-                                 `- Tổng Thu: ${inc.toLocaleString('vi-VN')}đ | Tổng Chi: ${exp.toLocaleString('vi-VN')}đ | Số Dư: ${(inc - exp).toLocaleString('vi-VN')}đ\n\n`;
+                    let detail = `📊 **BÁO CÁO THU CHI - ${title}**\n\n` +
+                                 `🔴 **Tổng Chi:** ${exp.toLocaleString('vi-VN')} VNĐ\n` +
+                                 `🟢 **Tổng Thu:** ${inc.toLocaleString('vi-VN')} VNĐ\n` +
+                                 `💵 **Dư Tích Lũy:** ${(inc - exp).toLocaleString('vi-VN')} VNĐ\n\n` +
+                                 `----------------------------------\n` +
+                                 `📂 **CHI TIẾT CÁC KHOẢN ĐÃ CHI:**\n\n`;
                     
-                    if (Object.keys(catTotals).length > 0) {
-                        detail += `📁 PHÂN BỔ THEO DANH MỤC:\n`;
-                        for (const [cat, amt] of Object.entries(catTotals)) {
-                            const pct = exp > 0 ? Math.round((amt / exp) * 100) : 0;
-                            detail += `- ${cat}: ${amt.toLocaleString('vi-VN')}đ (${pct}%)\n`;
+                    const catKeys = Object.keys(catItemsMap);
+                    if (catKeys.length > 0) {
+                        for (const cat of catKeys) {
+                            const catData = catItemsMap[cat];
+                            const pct = exp > 0 ? Math.round((catData.total / exp) * 100) : 0;
+                            detail += `📁 **${cat.toUpperCase()} (${catData.total.toLocaleString('vi-VN')} VNĐ - ${pct}%):**\n`;
+                            catData.list.forEach((item) => {
+                                const dateStr = new Date(item.date).toLocaleDateString('vi-VN');
+                                detail += `   • ${item.amount.toLocaleString('vi-VN')}đ — ${item.note} (${dateStr})\n`;
+                            });
+                            detail += `\n`;
                         }
-                        detail += `\n`;
+                    } else {
+                        detail += `_Chưa có khoản chi nào (> 0 VNĐ) trong mốc thời gian này._\n`;
                     }
                     
-                    if (items.length > 0) {
-                        detail += `📝 CÁC KHOẢN GIAO DỊCH CHI TIẾT (${items.length} khoản):\n`;
-                        items.slice(0, 15).forEach((item, idx) => {
-                            const icon = item.type === 'INCOME' ? 'THU' : 'CHI';
-                            const dateStr = new Date(item.date).toLocaleDateString('vi-VN');
-                            detail += `${idx + 1}. [${icon} ${item.amount.toLocaleString('vi-VN')}đ] (${item.category}) Ghi chú: ${item.note} - Ngày: ${dateStr}\n`;
-                        });
-                    } else {
-                        detail += `Chưa có giao dịch nào trong khoảng thời gian này.`;
-                    }
                     toolResults.push(detail);
                 }
                 else if (fnName === 'search_database') {
@@ -202,7 +277,7 @@ async function handleGroqAI(ctx, text) {
                         ).join('\n') + '\n';
                     }
                     if (notes.length > 0) {
-                        detail += `[KHO GHI CHÚ]:\n` + notes.map(n => `- [Danh mục: ${n.category}] Nội dung: ${n.content || '(Chỉ có file đính kèm)'}`).join('\n');
+                        detail += `[KHO SAVED]:\n` + notes.map(n => `- [Phân loại: ${n.category}] Nội dung: ${n.content || '(Chỉ có file đính kèm)'}`).join('\n');
                     }
                     if (txs.length === 0 && notes.length === 0) {
                         detail += `Không tìm thấy dữ liệu phù hợp trong CSDL.`;
@@ -317,7 +392,7 @@ const mainMenu = Markup.inlineKeyboard([
     [Markup.button.callback('📝 Tạo Đơn Mới', 'action_create'), Markup.button.callback('🔍 Tra Cứu', 'action_search')],
     [Markup.button.callback('🛠 Bảo Hành', 'action_warranty_list'), Markup.button.callback('👤 Khách Hàng', 'action_search_customer')],
     [Markup.button.callback('📈 Thống Kê CRM', 'action_stats'), Markup.button.callback('💰 Thu Chi Cá Nhân', 'action_personal_finance')],
-    [Markup.button.callback('📝 Kho Ghi Chú', 'action_view_notes')]
+    [Markup.button.callback('💾 Saved', 'action_view_notes')]
 ]);
 
 async function showOrderDetail(ctx, transactionId) {
@@ -729,32 +804,42 @@ async function generateFinanceReport(ctx, period = 'month') {
     
     let totalIncome = 0;
     let totalExpense = 0;
-    const catMap = {};
+    const catItemsMap = {};
     
     items.forEach(item => {
         if (item.type === 'INCOME') {
             totalIncome += item.amount;
         } else {
             totalExpense += item.amount;
-            catMap[item.category] = (catMap[item.category] || 0) + item.amount;
+            if (!catItemsMap[item.category]) catItemsMap[item.category] = { total: 0, list: [] };
+            catItemsMap[item.category].total += item.amount;
+            catItemsMap[item.category].list.push(item);
         }
     });
     
     const balance = totalIncome - totalExpense;
     
-    let reportText = `📊 **BÁO CÁO THU CHI - ${periodTitle}**\n\n` +
-                     `🟢 **Tổng Thu:** ${totalIncome.toLocaleString('vi-VN')} VNĐ\n` +
+    let reportText = `📊 **BÁO CÁO THU CHI (${periodTitle})**\n\n` +
                      `🔴 **Tổng Chi:** ${totalExpense.toLocaleString('vi-VN')} VNĐ\n` +
+                     `🟢 **Tổng Thu:** ${totalIncome.toLocaleString('vi-VN')} VNĐ\n` +
                      `💵 **Dư Tích Lũy:** ${balance.toLocaleString('vi-VN')} VNĐ\n\n` +
-                     `📂 **PHÂN BỔ CHI TIÊU THEO DANH MỤC:**\n`;
+                     `----------------------------------\n` +
+                     `📂 **CHI TIẾT CÁC KHOẢN ĐÃ CHI:**\n\n`;
                      
-    if (totalExpense > 0) {
-        for (const [cat, amt] of Object.entries(catMap)) {
-            const percent = ((amt / totalExpense) * 100).toFixed(1);
-            reportText += `- **${cat}**: ${amt.toLocaleString('vi-VN')} VNĐ (${percent}%)\n`;
+    const catKeys = Object.keys(catItemsMap);
+    if (catKeys.length > 0) {
+        for (const cat of catKeys) {
+            const catData = catItemsMap[cat];
+            const percent = totalExpense > 0 ? ((catData.total / totalExpense) * 100).toFixed(1) : 0;
+            reportText += `📁 **${cat.toUpperCase()} (${catData.total.toLocaleString('vi-VN')} VNĐ - ${percent}%):**\n`;
+            catData.list.forEach((item) => {
+                const dateStr = new Date(item.date).toLocaleDateString('vi-VN');
+                reportText += `   • ${item.amount.toLocaleString('vi-VN')}đ — ${item.note} _(${dateStr})_\n`;
+            });
+            reportText += `\n`;
         }
     } else {
-        reportText += `*(Chưa có khoản chi nào trong mốc thời gian này)*\n`;
+        reportText += `_Chưa có khoản chi nào (> 0 VNĐ) trong mốc thời gian này._\n`;
     }
     
     const btns = Markup.inlineKeyboard([
@@ -949,8 +1034,8 @@ bot.on(['text', 'channel_post'], async (ctx) => {
         return await ctx.sendTracked('🚫 Đã hủy thao tác!\n\nDanh mục quản lý:', mainMenu);
     }
 
-    // Tính năng Ghi chú thông minh (Lệnh toàn cục, hoạt động ở mọi trạng thái)
-    const noteMatch = text.match(/^note[:\s\n]+([\s\S]+)$/i);
+    // Tính năng Ghi chú / Saved thông minh (Cú pháp: note:..., sv:..., saved:...)
+    const noteMatch = text.match(/^(?:note|sv|saved)[:\s\n]+([\s\S]+)$/i);
     const appMatch = text.match(/^app[:\s\n]+([\s\S]+)$/i);
     const prMatch = text.match(/^pr[:\s\n]+([\s\S]+)$/i);
 
