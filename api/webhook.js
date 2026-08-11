@@ -244,6 +244,34 @@ async function handleGroqAI(ctx, text) {
                     await newNote.save();
                     toolResults.push(`✅ Đã lưu thành công vào Kho Saved [Phân loại: ${cat}]: ${args.content}`);
                 }
+                else if (fnName === 'delete_transaction') {
+                    let kw = (args.keyword || '').trim();
+                    kw = kw.replace(/^(?:khách hàng|khách|đơn hàng|đơn)\s+/i, '').trim();
+                    
+                    let exactTxs = await Transaction.find({
+                        $or: [
+                            { buyerName: new RegExp(`^${kw}$`, 'i') },
+                            { transactionId: new RegExp(`^${kw}$`, 'i') }
+                        ]
+                    });
+                    
+                    let deletedCount = 0;
+                    if (exactTxs.length > 0) {
+                        const ids = exactTxs.map(t => t._id);
+                        const res = await Transaction.deleteMany({ _id: { $in: ids } });
+                        deletedCount = res.deletedCount;
+                    } else if (kw.length > 2) {
+                        const res = await Transaction.deleteMany({
+                            $or: [
+                                { buyerName: { $regex: kw, $options: 'i' } },
+                                { transactionId: { $regex: kw, $options: 'i' } }
+                            ]
+                        });
+                        deletedCount = res.deletedCount;
+                    }
+                    
+                    toolResults.push(`🗑 Đã xóa ${deletedCount} đơn hàng CRM khớp với từ khóa "${kw}" khỏi CSDL.`);
+                }
                 else if (fnName === 'delete_note') {
                     const kw = args.keyword;
                     const deleted = await Note.deleteMany({
