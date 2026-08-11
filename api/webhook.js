@@ -43,16 +43,105 @@ const groqTools = [
     {
         type: 'function',
         function: {
-            name: 'search_database',
-            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc dữ liệu trong Kho Saved.',
+            name: 'delete_expense',
+            description: 'Xóa khoản thu hoặc chi tiêu cá nhân khỏi CSDL theo ghi chú hoặc số tiền.',
             parameters: {
                 type: 'object',
                 properties: {
-                    keyword: { type: 'string', description: 'Từ khóa tìm kiếm (Ví dụ: "Nghĩa", "Netflix", hoặc "all" nếu muốn xem tất cả)' },
-                    target: { type: 'string', enum: ['all', 'notes', 'orders'], description: 'Mục tiêu: "notes" nếu chỉ xem Kho Saved, "orders" nếu chỉ xem Đơn hàng CRM, "all" nếu muốn xem cả hai.' }
+                    keyword: { type: 'string', description: 'Từ khóa ghi chú hoặc mô tả khoản thu chi cần xóa' }
                 },
                 required: ['keyword']
             }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'search_database',
+            description: 'Tìm kiếm hoặc xem danh sách đơn hàng CRM hoặc dữ liệu trong Kho Saved/Ghi chú.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Từ khóa tìm kiếm. Nếu người dùng nói "khách hàng 1" hoặc "khách 1", chỉ trích xuất từ khóa cốt lõi là "1"' },
+                    target: { type: 'string', enum: ['all', 'notes', 'orders'], description: 'Mục tiêu: "notes" cho Kho Saved, "orders" cho Đơn hàng CRM, "all" cho cả hai.' }
+                },
+                required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'create_transaction',
+            description: 'Tạo đơn hàng CRM mới vào CSDL bán hàng.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    buyerName: { type: 'string', description: 'Tên khách hàng' },
+                    sellerName: { type: 'string', description: 'Nguồn nhập / Tên người bán' },
+                    productName: { type: 'string', description: 'Tên gói dịch vụ / sản phẩm' },
+                    price: { type: 'number', description: 'Giá bán (VNĐ)' },
+                    importPrice: { type: 'number', description: 'Giá nhập (VNĐ)' },
+                    durationDays: { type: 'number', description: 'Thời hạn gói (số ngày)' }
+                },
+                required: ['buyerName', 'productName', 'price']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'update_transaction',
+            description: 'Sửa thông tin một đơn hàng CRM trong CSDL.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Mã đơn (DHxxxx) hoặc Tên khách hàng cần tìm để sửa' },
+                    buyerName: { type: 'string' },
+                    sellerName: { type: 'string' },
+                    productName: { type: 'string' },
+                    price: { type: 'number' },
+                    importPrice: { type: 'number' },
+                    durationDays: { type: 'number' }
+                },
+                required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'delete_transaction',
+            description: 'Xóa một hoặc nhiều đơn hàng CRM khỏi CSDL theo Mã đơn (DHxxxx) hoặc Tên khách hàng.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Mã đơn (DHxxxx) hoặc Tên khách hàng (ví dụ: "1", "Hoàng kaka")' }
+                },
+                required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'calculate_warranty',
+            description: 'Đánh dấu đơn hàng cần bảo hành/báo lỗi và tính tiền hoàn trả.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    keyword: { type: 'string', description: 'Mã đơn hoặc Tên khách hàng báo lỗi bảo hành' }
+                },
+                required: ['keyword']
+            }
+        }
+    },
+    {
+        type: 'function',
+        function: {
+            name: 'get_crm_stats',
+            description: 'Lấy báo cáo doanh thu, giá nhập, hoàn tiền và lợi nhuận ròng tổng quan CRM.',
+            parameters: { type: 'object', properties: {} }
         }
     },
     {
@@ -74,7 +163,7 @@ const groqTools = [
         type: 'function',
         function: {
             name: 'delete_note',
-            description: 'Xóa một mục khỏi Kho Saved theo từ khóa hoặc nội dung.',
+            description: 'Xóa một mục khỏi Kho Saved theo từ khóa hoặc nội dung. LƯU Ý: Không dùng hàm này để xóa đơn hàng/khách hàng CRM!',
             parameters: {
                 type: 'object',
                 properties: {
@@ -108,11 +197,14 @@ async function handleGroqAI(ctx, text) {
     }
     
     try {
+        const history = (ctx.session.chatHistory || []).slice(-10);
+        
         const messages = [
             {
                 role: 'system',
-                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot. Bạn giao tiếp bằng tiếng Việt thân thiện, tự nhiên, xưng hô Sếp/Em hoặc Bạn/Tôi. Bạn có các Công cụ (Tools) để quản lý toàn bộ Thu Chi, Báo cáo tài chính và Kho Saved (Lưu, Sửa, Xóa, Tra cứu). Khi người dùng chi/thu tiền, gọi add_expense. Khi người dùng cần báo cáo thu chi, gọi get_finance_report. Khi người dùng muốn lưu thông tin/ý tưởng/link/mật khẩu, hãy gọi save_note. Khi người dùng muốn xóa mục trong Saved, gọi delete_note. Khi người dùng muốn sửa mục trong Saved, gọi update_note. Khi người dùng tra cứu thông tin hay xem Saved, gọi search_database.'
+                content: 'Bạn là Trợ lý AI siêu tốc của Garlic Bot có TOÀN QUYỀN điều hành CRM, Thu Chi và Kho Saved. QUY TẮC AN TOÀN TUYỆT ĐỐI KHI XÓA DỮ LIỆU: Khi người dùng yêu cầu xóa bất kỳ dữ liệu nào (xóa đơn hàng CRM, xóa khách hàng, xóa ghi chú, xóa khoản thu chi), nếu người dùng CHƯA NÓI TỪ XÁC NHẬN (như "đồng ý", "xác nhận", "ok xóa", "chắc chắn"), bạn TUYỆT ĐỐI KHÔNG ĐƯỢC gọi các hàm delete_transaction, delete_note, delete_expense ngay. Thay vào đó, hãy hỏi lại người dùng để xác nhận: "⚠️ XÁC NHẬN XÓA DỮ LIỆU: Bạn có chắc chắn muốn xóa [Tên mục / Mã đơn] khỏi CSDL không? Vui lòng phản hồi Đồng ý hoặc Xác nhận để tiến hành xóa vĩnh viễn!" Chỉ khi người dùng đồng ý/xác nhận ở câu thoại tiếp theo, bạn mới được gọi hàm xóa tương ứng. LƯU Ý BẢO HÀNH: Chỉ báo cáo đơn hàng cần bảo hành khi trường status chính xác là WARRANTY_REQUESTED.'
             },
+            ...history,
             { role: 'user', content: text }
         ];
 
@@ -234,13 +326,97 @@ async function handleGroqAI(ctx, text) {
                     
                     toolResults.push(detail);
                 }
+                else if (fnName === 'delete_expense') {
+                    const kw = args.keyword;
+                    const deleted = await Expense.deleteMany({ note: { $regex: kw, $options: 'i' } });
+                    toolResults.push(`🗑 Đã xóa ${deleted.deletedCount} khoản thu chi khớp với ghi chú "${kw}".`);
+                }
+                else if (fnName === 'create_transaction') {
+                    const newId = `DH${Math.floor(1000 + Math.random() * 9000)}`;
+                    const tx = new Transaction({
+                        transactionId: newId,
+                        sellerName: args.sellerName || 'Cá nhân',
+                        buyerName: args.buyerName || 'Khách hàng',
+                        productName: args.productName || 'Dịch vụ',
+                        importPrice: Number(args.importPrice) || 0,
+                        price: Number(args.price) || 0,
+                        durationDays: Number(args.durationDays) || 30
+                    });
+                    await tx.save();
+                    toolResults.push(`✅ Đã tạo Đơn Hàng CRM thành công: Mã đơn ${tx.transactionId} | Khách: ${tx.buyerName} | Dịch vụ: ${tx.productName} | Giá bán: ${tx.price.toLocaleString('vi-VN')}đ`);
+                }
+                else if (fnName === 'delete_transaction') {
+                    let kw = (args.keyword || '').trim();
+                    kw = kw.replace(/^(?:khách hàng|khách|đơn hàng|đơn)\s+/i, '').trim();
+                    const deleted = await Transaction.deleteMany({
+                        $or: [
+                            { transactionId: { $regex: kw, $options: 'i' } },
+                            { buyerName: { $regex: kw, $options: 'i' } },
+                            { sellerName: { $regex: kw, $options: 'i' } },
+                            { productName: { $regex: kw, $options: 'i' } }
+                        ]
+                    });
+                    toolResults.push(`🗑 Đã xóa ${deleted.deletedCount} đơn hàng CRM khớp với từ khóa "${kw}" khỏi CSDL.`);
+                }
+                else if (fnName === 'update_transaction') {
+                    let kw = (args.keyword || '').trim();
+                    kw = kw.replace(/^(?:khách hàng|khách|đơn hàng|đơn)\s+/i, '').trim();
+                    const tx = await Transaction.findOne({
+                        $or: [
+                            { transactionId: { $regex: kw, $options: 'i' } },
+                            { buyerName: { $regex: kw, $options: 'i' } }
+                        ]
+                    });
+                    if (tx) {
+                        if (args.buyerName) tx.buyerName = args.buyerName;
+                        if (args.sellerName) tx.sellerName = args.sellerName;
+                        if (args.productName) tx.productName = args.productName;
+                        if (args.price) tx.price = Number(args.price);
+                        if (args.importPrice) tx.importPrice = Number(args.importPrice);
+                        if (args.durationDays) tx.durationDays = Number(args.durationDays);
+                        await tx.save();
+                        toolResults.push(`✏ Đã cập nhật thành công Đơn Hàng CRM ${tx.transactionId}!`);
+                    } else {
+                        toolResults.push(`❌ Không tìm thấy đơn hàng CRM nào khớp với "${kw}" để sửa.`);
+                    }
+                }
+                else if (fnName === 'calculate_warranty') {
+                    let kw = (args.keyword || '').trim();
+                    kw = kw.replace(/^(?:khách hàng|khách|đơn hàng|đơn)\s+/i, '').trim();
+                    const tx = await Transaction.findOne({
+                        $or: [
+                            { transactionId: { $regex: kw, $options: 'i' } },
+                            { buyerName: { $regex: kw, $options: 'i' } }
+                        ]
+                    });
+                    if (tx) {
+                        tx.status = 'WARRANTY_REQUESTED';
+                        await tx.save();
+                        toolResults.push(`🛠 Đã chuyển trạng thái Đơn hàng ${tx.transactionId} (${tx.buyerName}) sang ⚠️ ĐANG BÁO LỖI CẦN BẢO HÀNH.`);
+                    } else {
+                        toolResults.push(`❌ Không tìm thấy đơn hàng nào khớp với "${kw}" để tính bảo hành.`);
+                    }
+                }
+                else if (fnName === 'get_crm_stats') {
+                    const allTx = await Transaction.find().lean();
+                    let rev = 0, imp = 0, ref = 0;
+                    allTx.forEach(t => {
+                        rev += t.price || 0;
+                        imp += t.importPrice || 0;
+                        ref += t.refundedAmount || 0;
+                    });
+                    const profit = rev - (imp + ref);
+                    toolResults.push(`📈 **BÁO CÁO KINH DOANH CRM:**\n- Tổng Doanh thu: ${rev.toLocaleString('vi-VN')}đ\n- Tổng Giá nhập: ${imp.toLocaleString('vi-VN')}đ\n- Đã hoàn tiền: ${ref.toLocaleString('vi-VN')}đ\n💵 **LỢI NHUẬN RÒNG:** ${profit.toLocaleString('vi-VN')}đ`);
+                }
                 else if (fnName === 'search_database') {
-                    const kw = (args.keyword || '').trim();
-                    const target = (args.target || 'all').toLowerCase();
+                    let rawKw = (args.keyword || '').trim();
+                    let cleanKw = rawKw.replace(/^(?:khách hàng|khách|đơn hàng|đơn|người bán|nguồn nhập)\s+/i, '').trim();
+                    if (!cleanKw) cleanKw = rawKw;
                     
+                    const target = (args.target || 'all').toLowerCase();
                     let txs = [];
                     let notes = [];
-                    const isAllKeyword = !kw || kw.toLowerCase() === 'all' || kw.toLowerCase() === 'tất cả';
+                    const isAllKeyword = !rawKw || rawKw.toLowerCase() === 'all' || rawKw.toLowerCase() === 'tất cả';
                     
                     if (target === 'all' || target === 'orders') {
                         if (isAllKeyword) {
@@ -248,10 +424,11 @@ async function handleGroqAI(ctx, text) {
                         } else {
                             txs = await Transaction.find({
                                 $or: [
-                                    { buyerName: { $regex: kw, $options: 'i' } },
-                                    { transactionId: { $regex: kw, $options: 'i' } },
-                                    { productName: { $regex: kw, $options: 'i' } },
-                                    { sellerName: { $regex: kw, $options: 'i' } }
+                                    { buyerName: { $regex: cleanKw, $options: 'i' } },
+                                    { buyerName: { $regex: rawKw, $options: 'i' } },
+                                    { transactionId: { $regex: cleanKw, $options: 'i' } },
+                                    { productName: { $regex: cleanKw, $options: 'i' } },
+                                    { sellerName: { $regex: cleanKw, $options: 'i' } }
                                 ]
                             }).limit(10).lean();
                         }
@@ -263,8 +440,9 @@ async function handleGroqAI(ctx, text) {
                         } else {
                             notes = await Note.find({
                                 $or: [
-                                    { content: { $regex: kw, $options: 'i' } },
-                                    { category: { $regex: kw, $options: 'i' } }
+                                    { content: { $regex: cleanKw, $options: 'i' } },
+                                    { content: { $regex: rawKw, $options: 'i' } },
+                                    { category: { $regex: cleanKw, $options: 'i' } }
                                 ]
                             }).limit(10).lean();
                         }
@@ -272,9 +450,10 @@ async function handleGroqAI(ctx, text) {
                     
                     let detail = `Kết quả dữ liệu tìm thấy:\n`;
                     if (txs.length > 0) {
-                        detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => 
-                            `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Nguồn nhập: ${t.sellerName || '(Chưa có)'} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn gói: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.refundedAmount ? ` | Đã hoàn tiền: ${t.refundedAmount.toLocaleString('vi-VN')}đ` : ''}${t.proofPhoto ? ` | Có ảnh bằng chứng` : ''}`
-                        ).join('\n') + '\n';
+                        detail += `[DANH SÁCH ĐƠN HÀNG CRM]:\n` + txs.map(t => {
+                            const statusText = t.status === 'WARRANTY_REQUESTED' ? '⚠️ ĐANG BÁO LỖI CẦN BẢO HÀNH' : (t.status === 'REFUNDED' || t.refundedAmount > 0 ? 'Đã hoàn tiền' : 'Hoạt động bình thường');
+                            return `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Nguồn nhập: ${t.sellerName || '(Chưa có)'} | Dịch vụ: ${t.productName} | Trạng thái: ${statusText} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Giá nhập: ${t.importPrice?.toLocaleString('vi-VN')}đ | Hạn gói: ${t.durationDays} ngày | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}${t.proofPhoto ? ` | Có ảnh bằng chứng` : ''}`;
+                        }).join('\n') + '\n';
                     }
                     if (notes.length > 0) {
                         detail += `[KHO SAVED]:\n` + notes.map(n => {
@@ -301,41 +480,54 @@ async function handleGroqAI(ctx, text) {
                 messages
             });
 
-async function sendSafeMarkdown(ctx, text) {
-    if (!text) return;
+async function sendSafeMarkdown(ctx, textContent) {
+    if (!textContent) return;
     try {
-        await ctx.sendTracked(text, { parse_mode: 'Markdown' });
+        await ctx.sendTracked(textContent, { parse_mode: 'Markdown' });
     } catch (err) {
-        await ctx.sendTracked(text);
+        await ctx.sendTracked(textContent);
     }
 }
 
-            await sendSafeMarkdown(ctx, finalResponse.choices[0].message.content);
+            const aiReplyText = finalResponse.choices[0].message.content;
+            if (!ctx.session.chatHistory) ctx.session.chatHistory = [];
+            ctx.session.chatHistory.push({ role: 'user', content: text });
+            ctx.session.chatHistory.push({ role: 'assistant', content: aiReplyText });
+            if (ctx.session.chatHistory.length > 20) ctx.session.chatHistory = ctx.session.chatHistory.slice(-20);
+
+            await sendSafeMarkdown(ctx, aiReplyText);
             return true;
         }
 
         if (responseMessage.content) {
-            await sendSafeMarkdown(ctx, responseMessage.content);
+            const aiReplyText = responseMessage.content;
+            if (!ctx.session.chatHistory) ctx.session.chatHistory = [];
+            ctx.session.chatHistory.push({ role: 'user', content: text });
+            ctx.session.chatHistory.push({ role: 'assistant', content: aiReplyText });
+            if (ctx.session.chatHistory.length > 20) ctx.session.chatHistory = ctx.session.chatHistory.slice(-20);
+
+            await sendSafeMarkdown(ctx, aiReplyText);
             return true;
         }
     } catch (err) {
         console.error('Lỗi Groq AI:', err);
-        if (err.message && err.message.includes('tool_use_failed')) {
-            const lower = text.toLowerCase();
-            if (lower.includes('tuần') || lower.includes('week')) {
-                await generateFinanceReport(ctx, 'week');
-                return true;
-            }
-            if (lower.includes('tháng') || lower.includes('month')) {
-                await generateFinanceReport(ctx, 'month');
-                return true;
-            }
-            if (lower.includes('năm') || lower.includes('year')) {
-                await generateFinanceReport(ctx, 'year');
-                return true;
-            }
-            if (lower.includes('toàn bộ') || lower.includes('tất cả')) {
-                await generateFinanceReport(ctx, 'all');
+        if (err.message && (err.message.includes('tool_use_failed') || err.message.includes('Failed to call'))) {
+            let cleanKw = text.replace(/^(?:tìm|xóa|sửa|xem|kiểm tra|báo cáo)\s+/i, '').replace(/^(?:thông tin|khách hàng|khách|đơn hàng|đơn)\s+/i, '').trim();
+            if (!cleanKw) cleanKw = 'all';
+            
+            const txs = await Transaction.find({
+                $or: [
+                    { buyerName: { $regex: cleanKw, $options: 'i' } },
+                    { transactionId: { $regex: cleanKw, $options: 'i' } },
+                    { productName: { $regex: cleanKw, $options: 'i' } }
+                ]
+            }).limit(10).lean();
+
+            if (txs.length > 0) {
+                let detail = `[KẾT QUẢ TRA CỨU CSDL CRM]:\n` + txs.map(t => 
+                    `- Mã đơn: ${t.transactionId} | Khách hàng: ${t.buyerName} | Dịch vụ: ${t.productName} | Giá bán: ${t.price?.toLocaleString('vi-VN')}đ | Ngày mua: ${new Date(t.saleDate).toLocaleDateString('vi-VN')}`
+                ).join('\n');
+                await ctx.sendTracked(detail);
                 return true;
             }
         }
@@ -379,23 +571,24 @@ bot.use(async (ctx, next) => {
     const userId = isChannel ? ctx.chat.id : ctx.from.id;
     let session = await Session.findOne({ userId }).lean();
     if (!session) {
-        session = { userId, state: 'IDLE', data: {}, lastMessages: [] };
+        session = { userId, state: 'IDLE', data: {}, lastMessages: [], chatHistory: [] };
         await Session.create(session);
     }
     ctx.session = session;
+    ctx.session.chatHistory = ctx.session.chatHistory || [];
 
     ctx.sendTracked = async (text, extra) => { return await ctx.reply(text, extra); };
     ctx.clearOldMessages = async () => {};
 
     await next();
-    await Session.updateOne({ userId }, { state: ctx.session.state, data: ctx.session.data, lastMessages: ctx.session.lastMessages });
+    await Session.updateOne({ userId }, { state: ctx.session.state, data: ctx.session.data, lastMessages: ctx.session.lastMessages, chatHistory: ctx.session.chatHistory });
 });
 
 const mainMenu = Markup.inlineKeyboard([
     [Markup.button.callback('📝 Tạo Đơn Mới', 'action_create'), Markup.button.callback('🔍 Tra Cứu', 'action_search')],
     [Markup.button.callback('🛠 Bảo Hành', 'action_warranty_list'), Markup.button.callback('👤 Khách Hàng', 'action_search_customer')],
     [Markup.button.callback('📈 Thống Kê CRM', 'action_stats'), Markup.button.callback('💰 Thu Chi Cá Nhân', 'action_personal_finance')],
-    [Markup.button.callback('💾 Saved', 'action_view_notes')]
+    [Markup.button.callback('📝 Kho Ghi Chú', 'action_view_notes')]
 ]);
 
 async function showOrderDetail(ctx, transactionId) {
