@@ -1,0 +1,22 @@
+{
+  "name": "telebot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "loudness": "^0.4.2",
+    "mongoose": "^9.7.3",
+    "screenshot-desktop": "^1.15.4",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "vercel": "^54.18.5"
+  }
+}
